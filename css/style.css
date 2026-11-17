@@ -453,3 +453,76 @@ dialog::backdrop { background: rgba(62,58,57,.35); }
 .gatedetail { font-size: 13px; color: #84909E; word-break: break-all; }
 body.gated { overflow: hidden; }
 @media (max-width: 700px) { .syncpill { top: 8px; right: 10px; font-size: 12px; } }
+
+/* ---------- 天氣（2026-11-17） ---------- */
+.station .wx { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; line-height: 1.2; white-space: nowrap; }
+.station .wx .wxicon { width: 16px; height: 16px; flex: 0 0 auto; }
+.station .wx .wxt i { font-style: normal; opacity: .5; margin: 0 1px; }
+.station .wx.climate .wxt { opacity: .75; }
+.wxline { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 13px; margin-top: 2px; }
+.wxline .wxicon { width: 22px; height: 22px; }
+.wxline .wxtip { border: 1.5px solid var(--ink); border-radius: 999px; padding: 0 8px; font-size: 12px; background: #FFF4D6; }
+.wxline .wxsrc { font-size: 11px; opacity: .6; }
+@media (max-width: 600px) {
+  .station .wx { flex-direction: column; gap: 0; }
+  .station .wx .wxt { font-size: 10.5px; }
+}
+
+/* ---------- 願望清單（2026-11-17） ---------- */
+.wishtop { padding: 14px 18px; display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: center; margin-bottom: 16px; }
+.wishtop input[type=search] { border: 2px solid var(--ink); border-radius: 999px; padding: 5px 14px; width: 220px; background: #fff; }
+.wishtop .wishhide { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+.wishtop .wishhide input { width: 18px; height: 18px; accent-color: #6E9A57; }
+.wishtop #wishadd { margin-left: auto; }
+.wishsum { flex-basis: 100%; font-size: 13px; opacity: .8; }
+.wishkinds .kcount { display: inline-block; min-width: 18px; margin-left: 5px; padding: 0 5px; border-radius: 999px; background: rgba(62,58,57,.1); font-size: 11px; line-height: 18px; }
+.wishkinds button[aria-pressed="true"] .kcount { background: rgba(255,255,255,.3); }
+.wishgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; align-items: start; }
+.wishempty { padding: 28px 20px; text-align: center; opacity: .8; grid-column: 1 / -1; }
+.wishcard { overflow: hidden; display: flex; flex-direction: column; border-color: var(--ink); }
+.wishcard.done { opacity: .62; }
+.wthumb { position: relative; display: block; width: 100%; aspect-ratio: 16 / 10; padding: 0; border: 0; border-bottom: var(--bw) solid var(--ink); background: var(--k); overflow: hidden; }
+.wthumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
+.wthumb.broken img { display: none; }
+.wthumb .wph { position: absolute; inset: 0; display: grid; place-items: center; }
+.wthumb .wph svg { width: 56px; height: 56px; }
+.wthumb .wmore { position: absolute; z-index: 2; right: 8px; bottom: 8px; background: #fff; border: 2px solid var(--ink); border-radius: 999px; padding: 0 8px; font-size: 12px; }
+.wbody { padding: 10px 14px 12px; display: flex; flex-direction: column; gap: 4px; }
+.wtitle { display: flex; align-items: flex-start; gap: 8px; }
+.wtitle h3 { flex: 1; font-size: 17px; line-height: 1.35; overflow-wrap: anywhere; }
+.wishcard.done h3 { text-decoration: line-through; }
+.wtitle input[type=checkbox] { width: 20px; height: 20px; margin: 2px 0 0; accent-color: #6E9A57; flex: 0 0 auto; }
+.wstar { border: 0; background: transparent; font-size: 20px; line-height: 1; padding: 0 2px; color: #d8d4cf; -webkit-text-stroke: 1px var(--ink); }
+.wstar.on { color: #F6C445; }
+.wmeta { font-size: 13px; opacity: .8; overflow-wrap: anywhere; }
+.wnote { margin: 0; font-size: 13px; white-space: pre-line; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.wact { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.btn.sm { padding: 2px 12px; font-size: 13px; text-decoration: none; color: var(--ink); display: inline-flex; align-items: center; }
+.btn.sm.done { background: var(--green); }
+/* 表單：依類別顯示欄位 */
+.wishform[data-kind="buy"] .forplace, .wishform:not([data-kind="buy"]) .forbuy { display: none !important; }
+.wishform .wstarbox { align-self: end; padding-bottom: 6px; }
+.wimgprev { display: flex; gap: 8px; flex-wrap: wrap; }
+.wimgprev:empty { display: none; }
+.wpv { position: relative; width: 96px; height: 72px; border: 2px solid var(--ink); border-radius: 10px; overflow: hidden; background: #F2EFEA; }
+.wpv img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.wpv .wpverr { display: none; position: absolute; inset: 0; place-items: center; font-size: 11px; color: var(--now); text-align: center; }
+.wpv.broken img { display: none; }
+.wpv.broken .wpverr { display: grid; }
+.wimgview img { width: 100%; height: auto; display: block; border: 2px solid var(--ink); border-radius: 12px; }
+@media (max-width: 600px) {
+  .pagenav { gap: 6px; }
+  .pagenav button { padding: 6px 4px; font-size: 14px; }
+  .wishtop { padding: 12px; }
+  .wishkinds { width: 100%; }
+  .wishkinds button { flex: 1; padding: 4px 2px; font-size: 13px; }
+  .wishkinds .kcount { margin-left: 2px; min-width: 0; padding: 0 4px; }
+  .wishtop input[type=search] { flex: 1 1 100%; width: auto; }
+  .wishtop #wishadd { margin-left: auto; }
+  .wishgrid { grid-template-columns: 1fr; gap: 10px; }
+  .wishcard { flex-direction: row; align-items: stretch; }
+  .wthumb { width: 96px; flex: 0 0 96px; aspect-ratio: auto; min-height: 96px; border-bottom: 0; border-right: var(--bw) solid var(--ink); }
+  .wthumb .wph svg { width: 40px; height: 40px; }
+  .wbody { flex: 1; min-width: 0; padding: 8px 10px 10px; }
+  .wtitle h3 { font-size: 16px; }
+}

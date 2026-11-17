@@ -38,6 +38,13 @@
   };
   const BASIS = { person: "每人", vehicle: "每車", group: "全團" };
   const STATUS = { confirmed: "已確認", estimate: "估算", tbc: "待確認" };
+  // 願望清單的四類；cat／expenseCat = 排入行程時的類別
+  const WISH_KIND = {
+    food: { name: "美食", add: "美食", color: "#F2A497", cat: "food", ph: "例如：廣藏市場綠豆煎餅" },
+    sight: { name: "景點", add: "景點", color: "#F6D27A", cat: "sight", ph: "例如：北村韓屋村" },
+    shop: { name: "購物店舖", add: "店舖", color: "#DED2ED", cat: "sight", expenseCat: "shopping", ph: "例如：Olive Young 明洞旗艦店" },
+    buy: { name: "想買", add: "想買的東西", color: "#F4C7AA", ph: "例如：Torriden 精華" }
+  };
   const CUR_SYMBOL = { KRW: "₩", SGD: "S$", HKD: "HK$", TWD: "NT$", JPY: "¥", USD: "US$", MYR: "RM" };
 
   // 交通小圖示（原創 16×16 平塗路徑）
@@ -56,7 +63,7 @@
   const UI_KEY = STORE_KEY + ":ui";
   let trip = loadTrip();
   const history = [];
-  const ui = Object.assign({ page: "plan", view: "week", day: 0, showTotal: false, legFocus: null, selectedId: null, packFilter: "all", packSearch: "" }, loadUI());
+  const ui = Object.assign({ page: "plan", view: "week", day: 0, showTotal: false, legFocus: null, selectedId: null, packFilter: "all", packSearch: "", wishKind: "food", wishHide: false, wishSearch: "" }, loadUI());
   let prevDay = ui.day;
 
   function loadTrip() {
@@ -64,7 +71,7 @@
     return normalize(clone(window.TRIP_SOURCE));
   }
   function loadUI() { try { return JSON.parse(localStorage.getItem(UI_KEY) || "{}"); } catch (e) { return {}; } }
-  function saveUI() { try { localStorage.setItem(UI_KEY, JSON.stringify({ page: ui.page, view: ui.view, day: ui.day, showTotal: ui.showTotal, packFilter: ui.packFilter, viewer: ui.viewer || null })); } catch (e) { } }
+  function saveUI() { try { localStorage.setItem(UI_KEY, JSON.stringify({ page: ui.page, view: ui.view, day: ui.day, showTotal: ui.showTotal, packFilter: ui.packFilter, viewer: ui.viewer || null, wishKind: ui.wishKind, wishHide: ui.wishHide })); } catch (e) { } }
   function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(trip)); } catch (e) { toast("無法寫入本機草稿（瀏覽器儲存空間不可用）"); } }
   function normalize(t) {
     t.meta = Object.assign({ travelers: 1, settlementCurrency: "SGD", rates: { SGD: 1 }, timezone: "Asia/Seoul" }, t.meta || {});
@@ -77,6 +84,14 @@
     }
     t.meta.travelers = t.meta.members.length;
     t.packing = t.packing || { categories: [], items: [] };
+    if (!Array.isArray(t.wish)) t.wish = clone((window.TRIP_SOURCE && window.TRIP_SOURCE.wish) || []);
+    t.wish.forEach(w => {
+      if (!WISH_KIND[w.kind]) w.kind = "food";
+      if (!Array.isArray(w.imgs)) w.imgs = w.img ? [w.img] : [];
+      delete w.img;
+      w.price = Object.assign({ amount: null, currency: "KRW" }, w.price || {});
+      if (w.kind === "buy") w.qty = Math.max(1, Number(w.qty) || 1);
+    });
     const src = {}; ((window.TRIP_SOURCE && window.TRIP_SOURCE.items) || []).forEach(i => { src[i.id] = i; });
     t.items.forEach(it => {
       if (!it.naverQuery && src[it.id] && src[it.id].naverQuery) it.naverQuery = src[it.id].naverQuery; // 舊草稿補上新欄位
@@ -88,9 +103,9 @@
     return t;
   }
   // ---------- 實體（雲端同步與復原的最小單位） ----------
-  // 旅程拆成：meta、items{id}、legs{key}、expenses{id}、packCats{id}、packItems{id}、root{其他頂層欄位}。
-  // 有次序的陣列（expenses、packing）以 _o 記錄位置。
-  const KNOWN_TOP = ["meta", "items", "legs", "expenses", "packing"];
+  // 旅程拆成：meta、items{id}、legs{key}、expenses{id}、packCats{id}、packItems{id}、wish{id}、root{其他頂層欄位}。
+  // 有次序的陣列（expenses、packing、wish）以 _o 記錄位置。
+  const KNOWN_TOP = ["meta", "items", "legs", "expenses", "packing", "wish"];
   function stable(v) {
     if (Array.isArray(v)) return `[${v.map(stable).join(",")}]`;
     if (v && typeof v === "object") return `{${Object.keys(v).filter(k => v[k] !== undefined).sort().map(k => `${JSON.stringify(k)}:${stable(v[k])}`).join(",")}}`;
@@ -102,15 +117,15 @@
     const pk = t.packing || {};
     const packRoot = {}; Object.keys(pk).forEach(k => { if (k !== "categories" && k !== "items") packRoot[k] = clone(pk[k]); });
     if (Object.keys(packRoot).length) root.__packing = packRoot;
-    return { meta: clone(t.meta || {}), items: byId(t.items), legs: clone(t.legs || {}), expenses: byId(t.expenses, true), packCats: byId(pk.categories, true), packItems: byId(pk.items, true), root };
+    return { meta: clone(t.meta || {}), items: byId(t.items), legs: clone(t.legs || {}), expenses: byId(t.expenses, true), packCats: byId(pk.categories, true), packItems: byId(pk.items, true), wish: byId(t.wish, true), root };
   }
   function fromEntities(e) {
     const list = (o) => Object.values(o || {}).map(clone).sort((a, b) => (a._o ?? 0) - (b._o ?? 0) || String(a.id).localeCompare(String(b.id))).map(x => { delete x._o; return x; });
     const root = clone(e.root || {}); const packRoot = root.__packing || {}; delete root.__packing;
-    const t = Object.assign(root, { meta: clone(e.meta || {}), items: list(e.items).sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start) || String(a.id).localeCompare(String(b.id))), legs: clone(e.legs || {}), expenses: list(e.expenses), packing: Object.assign(packRoot, { categories: list(e.packCats), items: list(e.packItems) }) });
+    const t = Object.assign(root, { meta: clone(e.meta || {}), items: list(e.items).sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start) || String(a.id).localeCompare(String(b.id))), legs: clone(e.legs || {}), expenses: list(e.expenses), packing: Object.assign(packRoot, { categories: list(e.packCats), items: list(e.packItems) }), wish: list(e.wish) });
     return t;
   }
-  const COLLS = ["items", "legs", "expenses", "packCats", "packItems", "root"];
+  const COLLS = ["items", "legs", "expenses", "packCats", "packItems", "wish", "root"];
   /** 比較兩組實體，回傳改動：[{ coll, key, value }]，value === null 代表刪除；meta 的 key 為 null */
   function diffEntities(a, b) {
     const ops = [];
@@ -460,15 +475,62 @@
     $("#workspace").hidden = ui.page !== "plan";
     $("#expensespage").hidden = ui.page !== "expenses";
     $("#packingpage").hidden = ui.page !== "packing";
+    $("#wishpage").hidden = ui.page !== "wish";
   }
 
   // ==========================================================
   // 日期站點列 + 插圖
   // ==========================================================
   let dayPicks = [];
+  // ---------- 天氣（js/weather.js；只存在瀏覽器，不同步） ----------
+  let wx = {};
+  function weatherPoint() {
+    const stay = itemById(trip.meta.stayId);
+    if (stay && stay.lat != null) return { lat: stay.lat, lng: stay.lng };
+    const pts = trip.items.filter(i => i.lat != null);
+    if (pts.length) return { lat: pts.reduce((a, i) => a + i.lat, 0) / pts.length, lng: pts.reduce((a, i) => a + i.lng, 0) / pts.length };
+    return /首爾|Seoul|서울/i.test(trip.meta.destination || "") ? { lat: 37.5665, lng: 126.978 } : null;
+  }
+  function refreshWeather() {
+    // 雲端版還沒載入真正的行程（空殼日期）時先不下載
+    if (!window.Weather || (cloud.on && !cloudActive() && !cloud.localOnly) || !trip.items.length) { wx = {}; return; }
+    wx = Weather.forDays(getDays(), weatherPoint(), trip.meta.timezone, () => {
+      if (ui.page !== "plan") return;
+      renderDates(false);
+      if (ui.view === "day") { ui._keepScroll = true; renderCalendar(); }
+    });
+  }
+  const deg = (v) => `${Math.round(v) === 0 ? 0 : Math.round(v)}°`.replace("-", "−");
+  function wxStation(w) {
+    if (!w) return "";
+    return `<span class="wx ${w.src}" title="${w.src === "climate" ? `往年平均（過去 ${w.years} 年）` : `預報：${esc(w.label)}`}">${Weather.icon(w.kind, w.label)}<span class="wxt">${deg(w.tmax)}<i>/</i>${deg(w.tmin)}</span></span>`;
+  }
+  function wxTips(w) {
+    const t = [];
+    if (w.tmin <= -8) t.push("非常寒冷：保暖內衣、手套、暖包");
+    else if (w.tmin <= -3) t.push("很冷，注意保暖");
+    if (w.src === "forecast") {
+      if (w.kind === "snow" || w.kind === "sleet") t.push("可能下雪，穿防滑鞋");
+      else if ((w.pop ?? 0) >= 50 || w.kind === "rain" || w.kind === "storm") t.push("記得帶傘");
+    } else {
+      if (w.snowYears / w.years >= 0.3) t.push("這幾天常下雪，穿防滑鞋");
+      if (w.rainYears / w.years >= 0.3) t.push("帶摺傘");
+    }
+    return t;
+  }
+  function wxLine(date) {
+    const w = wx[date]; if (!w) return "";
+    const main = w.src === "forecast"
+      ? `${esc(w.label)} · 最高 ${deg(w.tmax)} 最低 ${deg(w.tmin)}${w.pop != null ? ` · 降雨機率 ${Math.round(w.pop)}%` : ""}`
+      : `往年平均 · 最高 ${deg(w.tmax)} 最低 ${deg(w.tmin)} · 過去 ${w.years} 年中 ${w.snowYears} 年下雪、${w.rainYears} 年下雨`;
+    const tips = wxTips(w);
+    const note = w.src === "forecast" ? "天氣預報" : `出發前 ${Weather.FORECAST_DAYS} 天內會改為天氣預報`;
+    return `<div class="wxline ${w.src}">${Weather.icon(w.kind, w.label)}<span>${main}</span>${tips.map(x => `<span class="wxtip">${esc(x)}</span>`).join("")}<span class="wxsrc">${note} · Open-Meteo</span></div>`;
+  }
   function renderDates(animate) {
     const days = getDays();
     ui.day = clamp(ui.day, 0, days.length - 1);
+    refreshWeather();
     dayPicks = Illustrations.pickAllDays(days.map(d => ({ date: d, items: dayItems(d) })));
     const host = $("#timeline-dates");
     host.innerHTML = `<div class="track" aria-hidden="true"></div>
@@ -476,8 +538,8 @@
       <div class="stations" role="tablist" aria-label="日期" style="grid-template-columns:repeat(${days.length},1fr)">
       ${days.map((d, i) => {
         const w = dayWarnings(d, i).length;
-        return `<button class="station" role="tab" data-day="${i}" aria-selected="${i === ui.day}" aria-label="第 ${i + 1} 天 ${dm(d)}（${wdOf(d)}）${dayPicks[i].title}${w ? `，${w} 個時間警告` : ""}">
-          <span class="dot">${Number(d.slice(8))}</span><span class="wd">D${i + 1} · ${wdOf(d)}</span>${w ? `<span class="warncount">⚠ ${w}</span>` : ""}</button>`;
+        return `<button class="station" role="tab" data-day="${i}" aria-selected="${i === ui.day}" aria-label="第 ${i + 1} 天 ${dm(d)}（${wdOf(d)}）${dayPicks[i].title}${wx[d] ? `，${wx[d].src === "climate" ? "往年平均" : wx[d].label} 最高 ${deg(wx[d].tmax)} 最低 ${deg(wx[d].tmin)}` : ""}${w ? `，${w} 個時間警告` : ""}">
+          <span class="dot">${Number(d.slice(8))}</span><span class="wd">D${i + 1} · ${wdOf(d)}</span>${wxStation(wx[d])}${w ? `<span class="warncount">⚠ ${w}</span>` : ""}</button>`;
       }).join("")}</div>`;
     const ym = days[ui.day];
     $("#calmonth").textContent = `${ym.slice(0, 4)} 年 ${Number(ym.slice(5, 7))} 月`;
@@ -730,6 +792,7 @@
         <h3>Day ${ui.day + 1} · ${dm(date)}（${wdOf(date)}）</h3>
         <span class="meta">${pick.title} · ${items.length} 個行程 · ${fmtHM(start)}–${fmtHM(end)}</span>
         ${warns.length ? `<span class="meta warn">⚠ ${warns.length} 處可能遲到或重疊</span>` : ""}
+        ${wxLine(date)}
       </div>
       ${items.length ? `<div id="timeline-list" class="timeline-list">
         <div class="day-time-scale" aria-hidden="true">
@@ -1117,14 +1180,15 @@
     const pay = { mode: f.paymode.value, payer: f.payer.value, participants: parts.length === allIds.length || !parts.length ? [] : parts };
     return { amount: a === "" ? null : Number(a), currency: f.currency.value, basis: f.basis.value, status: f.status.value, pay };
   }
-  function openItemEditor(id, presetDate) {
+  /** opts.prefill：新增時預填的欄位；opts.onCommit(t, next)：在同一次 commit 內一併修改（例如標記願望清單「已排入」） */
+  function openItemEditor(id, presetDate, opts = {}) {
     hidePreview();
     const isNew = !id;
     const days = getDays();
-    const it = isNew ? { id: uid("it"), date: presetDate || days[ui.day], start: "10:00", duration: 60, category: "sight", name: "", address: "", lat: null, lng: null, cost: { amount: null, currency: "KRW", basis: "person", status: "tbc" }, note: "", locked: false } : clone(itemById(id));
+    const it = isNew ? Object.assign({ id: uid("it"), date: presetDate || days[ui.day], start: "10:00", duration: 60, category: "sight", name: "", address: "", lat: null, lng: null, cost: { amount: null, currency: "KRW", basis: "person", status: "tbc" }, note: "", locked: false }, clone(opts.prefill || {})) : clone(itemById(id));
     if (!it) return;
     const dis = it.locked ? "disabled" : "";
-    openDialog(`${dlgHead(isNew ? "新增行程" : "編輯行程")}
+    openDialog(`${dlgHead(opts.title || (isNew ? "新增行程" : "編輯行程"))}
       <div class="dlgbody">
         <label class="full">名稱<input name="name" required value="${esc(it.name)}" placeholder="例如：景福宮"></label>
         <label>類別<select name="category">${Object.entries(CAT).map(([k, v]) => `<option value="${k}" ${k === it.category ? "selected" : ""}>${v.name}</option>`).join("")}</select></label>
@@ -1159,9 +1223,10 @@
       if (moved) next.coordEstimated = false;
       commit(t => {
         if (isNew) t.items.push(next); else { const i = t.items.findIndex(x => x.id === id); t.items[i] = next; }
+        if (opts.onCommit) opts.onCommit(t, next);
         // 地點改變 → 只重算與此行程相鄰、未手動設定的路段
         if (moved) Object.keys(t.legs).forEach(k => { if (k.replace("@stay", "").split(">").includes(next.id) && !t.legs[k].manual) delete t.legs[k]; });
-      }, isNew ? `已新增「${name}」` : `已更新「${name}」`);
+      }, opts.message ? opts.message(next) : isNew ? `已新增「${name}」` : `已更新「${name}」`);
       ui.day = getDays().indexOf(next.date); ui.selectedId = next.id;
       renderAll();
     }, id);
@@ -1271,9 +1336,9 @@
       if (a === "copy") { navigator.clipboard?.writeText(list.map((x, i) => `${i + 1}. ${x}`).join("\n")).then(() => toast("已複製")); return "已複製到剪貼簿"; }
     });
   }
-  function confirmDialog(title, text, okLabel, onOk) {
+  function confirmDialog(title, text, okLabel, onOk, okClass = "danger", cancelLabel = "取消") {
     openDialog(`${dlgHead(title)}<div class="dlgbody"><p class="full">${esc(text)}</p></div>
-      <div class="dlgfoot"><button class="btn" value="cancel">取消</button><button class="btn danger" value="ok">${esc(okLabel)}</button></div>`, () => { onOk(); });
+      <div class="dlgfoot"><button class="btn" value="cancel">${esc(cancelLabel)}</button><button class="btn ${okClass}" value="ok">${esc(okLabel)}</button></div>`, () => { onOk(); });
   }
 
   // ==========================================================
@@ -1455,6 +1520,200 @@
   }
 
   // ==========================================================
+  // 願望清單（美食／景點／購物店舖／想買）
+  // ==========================================================
+  const WISH_ART = {
+    food: '<svg viewBox="0 0 48 48"><path d="M8 22h32a16 14 0 0 1-32 0z" fill="#F2A497" stroke="#3E3A39" stroke-width="2.4" stroke-linejoin="round"/><path d="M14 34h20" stroke="#3E3A39" stroke-width="2.4" stroke-linecap="round"/><path d="M19 17c-2-3 2-5 0-8M25 17c-2-3 2-5 0-8M31 17c-2-3 2-5 0-8" fill="none" stroke="#3E3A39" stroke-width="2" stroke-linecap="round"/></svg>',
+    sight: '<svg viewBox="0 0 48 48"><path d="M8 40h32M12 40V22M36 40V22M24 40V28" stroke="#3E3A39" stroke-width="2.4" stroke-linecap="round"/><path d="M6 22h36L38 15H10z" fill="#F6D27A" stroke="#3E3A39" stroke-width="2.4" stroke-linejoin="round"/><path d="M12 15l3-6h18l3 6" fill="#B9DAA5" stroke="#3E3A39" stroke-width="2.4" stroke-linejoin="round"/></svg>',
+    shop: '<svg viewBox="0 0 48 48"><path d="M10 16h28l-2 24H12z" fill="#DED2ED" stroke="#3E3A39" stroke-width="2.4" stroke-linejoin="round"/><path d="M18 20v-6a6 6 0 0 1 12 0v6" fill="none" stroke="#3E3A39" stroke-width="2.4" stroke-linecap="round"/></svg>',
+    buy: '<svg viewBox="0 0 48 48"><rect x="9" y="20" width="30" height="20" rx="3" fill="#F4C7AA" stroke="#3E3A39" stroke-width="2.4"/><rect x="7" y="14" width="34" height="7" rx="2" fill="#fff" stroke="#3E3A39" stroke-width="2.4"/><path d="M24 14v26M24 14c-3-6-10-6-9-1s9 1 9 1c3-6 10-6 9-1s-9 1-9 1" fill="none" stroke="#3E3A39" stroke-width="2.4" stroke-linejoin="round"/></svg>'
+  };
+  const isUrl = (u) => /^https?:\/\/\S+$/i.test(String(u || "").trim());
+  const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return "連結"; } };
+  const wishById = (id) => trip.wish.find(w => w.id === id);
+  const wishSched = (w) => (w.scheduledId && itemById(w.scheduledId)) || null;
+  const wishDone = (w) => w.kind === "buy" ? !!w.bought : !!wishSched(w);
+  const seoulToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: trip.meta.timezone || "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  function wishPriceText(w) {
+    const p = w.price || {}; if (p.amount == null) return "";
+    const sc = trip.meta.settlementCurrency, r = rateOf(p.currency);
+    return `${money(p.amount, p.currency)}${p.currency !== sc && r ? `（${money(p.amount * r, sc)}）` : ""}`;
+  }
+  function renderWish() {
+    const host = $("#wishpage"), K = ui.wishKind in WISH_KIND ? ui.wishKind : "food", q = ui.wishSearch.trim().toLowerCase();
+    const all = trip.wish.filter(w => w.kind === K);
+    const list = all.filter(w => !ui.wishHide || !wishDone(w))
+      .filter(w => !q || [w.name, w.area, w.note, w.forWho, w.shop, w.naverQuery].join(" ").toLowerCase().includes(q))
+      .map((w, i) => ({ w, i })).sort((a, b) => (wishDone(a.w) - wishDone(b.w)) || (!!b.w.star - !!a.w.star) || a.i - b.i).map(x => x.w);
+    const hadFocus = document.activeElement && document.activeElement.id === "wishsearch";
+    const done = all.filter(wishDone).length, sc = trip.meta.settlementCurrency;
+    let summary = `${all.length} 項 · ${K === "buy" ? "已買" : "已排入"} ${done}`;
+    if (K === "buy") {
+      let tot = 0, miss = 0; all.forEach(w => { const r = rateOf(w.price.currency); if (w.price.amount == null || r == null) { miss++; return; } tot += w.price.amount * (w.qty || 1) * r; });
+      summary += ` · 預算約 ${money(tot, sc)}${miss ? `（${miss} 項未填價錢）` : ""}`;
+    }
+    host.innerHTML = `
+      <section class="frame wishtop">
+        <div class="filtergroup wishkinds" role="group" aria-label="清單類別">${Object.entries(WISH_KIND).map(([k, v]) => `<button type="button" data-k="${k}" aria-pressed="${k === K}">${v.name}<span class="kcount">${trip.wish.filter(w => w.kind === k).length}</span></button>`).join("")}</div>
+        <input type="search" id="wishsearch" placeholder="搜尋名稱、地區、備註" value="${esc(ui.wishSearch)}" aria-label="搜尋清單">
+        <label class="check wishhide"><input type="checkbox" id="wishhide" ${ui.wishHide ? "checked" : ""}> 隱藏${K === "buy" ? "已買" : "已排入"}</label>
+        <button type="button" class="btn primary" id="wishadd">＋ 新增${WISH_KIND[K].add}</button>
+        <div class="wishsum">${summary}</div>
+      </section>
+      <div class="wishgrid">${list.map(wishCard).join("") || `<div class="frame wishempty">${all.length ? "沒有符合的項目" : `還沒有${WISH_KIND[K].name}。按「＋ 新增${WISH_KIND[K].add}」加入${K === "buy" ? "想買的東西" : "想去的地方"}，之後可以一鍵排入行程。`}</div>`}</div>`;
+    $$(".wishkinds button", host).forEach(b => b.addEventListener("click", () => { ui.wishKind = b.dataset.k; saveUI(); renderWish(); }));
+    const s = $("#wishsearch");
+    s.addEventListener("input", () => { ui.wishSearch = s.value; const pos = s.selectionStart; renderWish(); const ns = $("#wishsearch"); ns.focus(); ns.setSelectionRange(pos, pos); });
+    if (hadFocus) s.focus();
+    $("#wishhide").addEventListener("change", e => { ui.wishHide = e.target.checked; saveUI(); renderWish(); });
+    $("#wishadd").addEventListener("click", () => openWishEditor(null, K));
+    $$(".wthumb img", host).forEach(img => img.addEventListener("error", () => img.closest(".wthumb").classList.add("broken"), { once: true }));
+    $$(".wishcard", host).forEach(card => {
+      const id = card.dataset.id;
+      card.addEventListener("dblclick", e => { if (!e.target.closest("a,button,input")) openWishEditor(id); });
+      card.addEventListener("click", e => {
+        const a = e.target.closest("[data-wa]"); if (!a) return;
+        const act = a.dataset.wa;
+        if (act === "edit") openWishEditor(id);
+        if (act === "sched") scheduleWish(id);
+        if (act === "goto") gotoItem(wishSched(wishById(id)));
+        if (act === "imgs") openWishImages(id);
+        if (act === "star") commit(t => { const w = t.wish.find(x => x.id === id); w.star = !w.star; });
+      });
+      const cb = card.querySelector('input[data-wa="bought"]');
+      if (cb) cb.addEventListener("change", () => setBought(id, cb.checked));
+    });
+  }
+  function wishCard(w) {
+    const k = WISH_KIND[w.kind], sched = wishSched(w), done = wishDone(w), img = w.imgs[0];
+    const thumb = img
+      ? `<button type="button" class="wthumb" data-wa="imgs" aria-label="查看圖片"><img src="${esc(img)}" alt="" loading="lazy" referrerpolicy="no-referrer"><span class="wph">${WISH_ART[w.kind]}</span>${w.imgs.length > 1 ? `<span class="wmore">+${w.imgs.length - 1}</span>` : ""}</button>`
+      : `<div class="wthumb empty" aria-hidden="true"><span class="wph">${WISH_ART[w.kind]}</span></div>`;
+    const naver = w.kind !== "buy" ? `<a class="btn sm" href="${naverUrl({ name: w.name, naverQuery: w.naverQuery, address: w.area ? `${w.area} ${w.name}` : w.name })}" target="_blank" rel="noopener">地圖</a>` : "";
+    const link = isUrl(w.link) ? `<a class="btn sm" href="${esc(w.link)}" target="_blank" rel="noopener" title="${esc(w.link)}">${esc(hostOf(w.link))} ↗</a>` : "";
+    const star = `<button type="button" class="wstar ${w.star ? "on" : ""}" data-wa="star" aria-pressed="${!!w.star}" aria-label="${w.kind === "buy" ? "一定要買" : "必去"}" title="${w.kind === "buy" ? "一定要買" : "必去"}">★</button>`;
+    const price = wishPriceText(w);
+    let meta, actions;
+    if (w.kind === "buy") {
+      meta = [w.qty > 1 ? `× ${w.qty}` : "", w.forWho ? `幫 ${esc(w.forWho)} 買` : "", price ? `預算 ${price}${w.qty > 1 ? " /件" : ""}` : "", w.shop ? `在 ${esc(w.shop)}` : ""].filter(Boolean).join(" · ");
+      actions = `${link}<button type="button" class="btn sm" data-wa="edit">編輯</button>`;
+    } else {
+      meta = [w.area ? esc(w.area) : "", price ? `約 ${price}` : ""].filter(Boolean).join(" · ");
+      const d = sched ? getDays().indexOf(sched.date) : -1;
+      actions = `${naver}${link}${sched ? `<button type="button" class="btn sm done" data-wa="goto" title="到行程規劃查看">✓ 已排入 D${d + 1} ${dm(sched.date)} ${sched.start}</button>` : `<button type="button" class="btn sm primary" data-wa="sched">排入行程</button>`}<button type="button" class="btn sm" data-wa="edit">編輯</button>`;
+    }
+    return `<article class="wishcard frame ${done ? "done" : ""}" data-id="${esc(w.id)}" style="--k:${k.color}">
+      ${thumb}
+      <div class="wbody">
+        <div class="wtitle">${w.kind === "buy" ? `<input type="checkbox" data-wa="bought" ${w.bought ? "checked" : ""} aria-label="已買：${esc(w.name)}">` : ""}<h3>${esc(w.name)}</h3>${star}</div>
+        ${meta ? `<div class="wmeta">${meta}</div>` : ""}
+        ${w.note ? `<p class="wnote">${linkify(w.note)}</p>` : ""}
+        <div class="wact">${actions}</div>
+      </div>
+    </article>`;
+  }
+  function openWishEditor(id, kind) {
+    const isNew = !id;
+    const w = isNew ? { id: uid("w"), kind: kind || "food", name: "", area: "", naverQuery: "", price: { amount: null, currency: "KRW" }, note: "", link: "", imgs: [], star: false, qty: 1, forWho: "", shop: "", bought: false } : clone(wishById(id));
+    if (!w) return;
+    const shops = [...new Set(trip.wish.filter(x => x.kind === "shop").map(x => x.name))];
+    openDialog(`${dlgHead(isNew ? `新增${WISH_KIND[w.kind].add}` : "編輯清單項目")}
+      <div class="dlgbody wishform" data-kind="${w.kind}">
+        <label>類別<select name="kind">${Object.entries(WISH_KIND).map(([k, v]) => `<option value="${k}" ${k === w.kind ? "selected" : ""}>${v.name}</option>`).join("")}</select></label>
+        <label class="check wstarbox"><input type="checkbox" name="star" ${w.star ? "checked" : ""}> <span class="forplace">必去</span><span class="forbuy">一定要買</span></label>
+        <label class="full">名稱<input name="name" value="${esc(w.name)}" placeholder="${esc(WISH_KIND[w.kind].ph)}"></label>
+        <label class="forplace">地區<input name="area" value="${esc(w.area || "")}" placeholder="例如：明洞、聖水洞"></label>
+        <label class="forplace">Naver 搜尋字（韓文）<input name="naverQuery" value="${esc(w.naverQuery || "")}" placeholder="例如：광장시장"></label>
+        <label class="forbuy">數量<input name="qty" type="number" min="1" step="1" value="${w.qty || 1}"></label>
+        <label class="forbuy">幫誰買<input name="forWho" value="${esc(w.forWho || "")}" placeholder="例如：自己、媽媽"></label>
+        <label><span class="forplace">預估價錢（每人）</span><span class="forbuy">單價預算</span><input name="amount" type="number" min="0" step="any" inputmode="decimal" value="${w.price.amount ?? ""}" placeholder="留空 = 未知"></label>
+        <label>幣別<select name="currency">${currencyOptions(w.price.currency)}</select></label>
+        <label class="forbuy full">在哪買<input name="shop" list="wishshops" value="${esc(w.shop || "")}" placeholder="例如：Olive Young、Daiso、機場免稅店"><datalist id="wishshops">${shops.map(n => `<option value="${esc(n)}">`).join("")}</datalist></label>
+        <label class="full">連結（官網、IG、小紅書、Naver 等）<input name="link" type="url" inputmode="url" value="${esc(w.link || "")}" placeholder="https://"></label>
+        <label class="full">圖片網址（每行一個，最多 3 個）<textarea name="imgs" rows="2" placeholder="https://…jpg（在圖片上按右鍵 →「複製圖片網址」）">${esc(w.imgs.join("\n"))}</textarea></label>
+        <div class="full wimgprev" aria-live="polite"></div>
+        <label class="full">備註<textarea name="note" placeholder="營業時間、必點、要排隊…">${esc(w.note || "")}</textarea></label>
+        <p class="formerr full" role="alert"></p>
+      </div>
+      <div class="dlgfoot">
+        ${isNew ? "" : `<button class="btn danger left" value="delete">刪除</button>`}
+        <button class="btn" value="cancel" formnovalidate>取消</button>
+        <button class="btn primary" value="save">儲存</button>
+      </div>`, (action, f) => {
+      if (action === "delete") { commit(t => { t.wish = t.wish.filter(x => x.id !== id); }, `已刪除「${w.name}」，可按復原`); return; }
+      const name = f.name.value.trim(); if (!name) return "請輸入名稱";
+      const link = f.link.value.trim(); if (link && !isUrl(link)) return "連結要以 http:// 或 https:// 開頭";
+      const lines = f.imgs.value.split(/\s+/).map(x => x.trim()).filter(Boolean);
+      const bad = lines.filter(x => !isUrl(x)); if (bad.length) return "圖片網址要以 http:// 或 https:// 開頭";
+      if (lines.length > 3) return "圖片最多 3 個";
+      const a = f.amount.value.trim(), kind = f.kind.value;
+      const next = Object.assign(w, { kind, name, star: f.star.checked, link, imgs: lines, note: f.note.value.trim(), price: { amount: a === "" ? null : Number(a), currency: f.currency.value } });
+      if (kind === "buy") Object.assign(next, { qty: Math.max(1, Math.round(Number(f.qty.value) || 1)), forWho: f.forWho.value.trim(), shop: f.shop.value.trim(), bought: !!next.bought });
+      else Object.assign(next, { area: f.area.value.trim(), naverQuery: f.naverQuery.value.trim() });
+      commit(t => { if (isNew) t.wish.push(next); else t.wish[t.wish.findIndex(x => x.id === id)] = next; }, isNew ? `已加入「${name}」` : `已更新「${name}」`);
+      if (ui.wishKind !== kind) { ui.wishKind = kind; saveUI(); renderWish(); }
+    });
+    const body = dlg().querySelector(".wishform"), ta = body.querySelector('textarea[name="imgs"]'), prev = body.querySelector(".wimgprev");
+    body.querySelector('select[name="kind"]').addEventListener("change", e => { body.dataset.kind = e.target.value; body.querySelector('input[name="name"]').placeholder = WISH_KIND[e.target.value].ph; });
+    const showPrev = () => {
+      const urls = ta.value.split(/\s+/).filter(isUrl).slice(0, 3);
+      prev.innerHTML = urls.map(u => `<span class="wpv"><img src="${esc(u)}" alt="" referrerpolicy="no-referrer"><span class="wpverr">無法載入</span></span>`).join("");
+      $$("img", prev).forEach(img => img.addEventListener("error", () => img.parentNode.classList.add("broken"), { once: true }));
+    };
+    let pt; ta.addEventListener("input", () => { clearTimeout(pt); pt = setTimeout(showPrev, 400); });
+    showPrev();
+  }
+  function openWishImages(id) {
+    const w = wishById(id); if (!w) return;
+    openDialog(`${dlgHead(w.name)}<div class="dlgbody wimgview">${w.imgs.map(u => `<a class="full" href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="${esc(w.name)}" referrerpolicy="no-referrer"></a>`).join("")}
+      <p class="hint full">按圖片會在新分頁開啟原圖。如果顯示不到，可能是該網站禁止外部引用，請換一個圖片網址。</p></div>
+      <div class="dlgfoot"><button class="btn" value="edit">編輯</button><button class="btn primary" value="cancel">關閉</button></div>`, (a) => { if (a === "edit") setTimeout(() => openWishEditor(id), 0); });
+  }
+  /** 排入行程：開新增行程表單（預填），儲存時同一步把清單項目標為「已排入」 */
+  function scheduleWish(id) {
+    const w = wishById(id); if (!w) return;
+    const days = getDays(), k = WISH_KIND[w.kind];
+    const date = days[ui.day] || days[0];
+    const last = dayItems(date).slice(-1)[0];
+    let start = w.kind === "food" ? "12:00" : "10:00";
+    if (last) { const e = Math.ceil((toMin(last.start) + last.duration + 15) / 15) * 15; if (e <= 22 * 60) start = fmtHM(e); }
+    const note = [w.note, isUrl(w.link) ? w.link : ""].filter(Boolean).join("\n");
+    openItemEditor(null, date, {
+      title: `排入行程：${w.name}`,
+      prefill: { name: w.name, category: k.cat, expenseCat: k.expenseCat, address: w.area || "", naverQuery: w.naverQuery || "", start, duration: w.kind === "food" ? 60 : 90, note, wishId: w.id,
+        cost: { amount: w.price.amount, currency: w.price.currency, basis: "person", status: w.price.amount == null ? "tbc" : "estimate" } },
+      onCommit: (t, next) => { const x = t.wish.find(v => v.id === id); if (x) x.scheduledId = next.id; },
+      message: (next) => `已把「${next.name}」排入 D${getDays().indexOf(next.date) + 1} ${dm(next.date)} ${next.start}`
+    });
+  }
+  function gotoItem(it) {
+    if (!it) return;
+    ui.page = "plan"; ui.day = Math.max(0, getDays().indexOf(it.date)); ui.selectedId = it.id; saveUI();
+    renderAll(); renderMap(true); highlightOnMap(it.id, true);
+    window.scrollTo({ top: 0, behavior: reduceMotion() ? "auto" : "smooth" });
+  }
+  /** 想買：打勾＝已買；有價錢時可順便記入費用頁（購物與手信） */
+  function setBought(id, val) {
+    const w = wishById(id); if (!w) return;
+    commit(t => { t.wish.find(x => x.id === id).bought = val; }, val ? `已買「${w.name}」` : null);
+    const exp = w.expenseId && trip.expenses.find(e => e.id === w.expenseId);
+    if (val && !exp && w.price.amount != null) {
+      const amt = w.price.amount * (w.qty || 1);
+      confirmDialog("記入費用？", `把「${w.name}${w.qty > 1 ? ` × ${w.qty}` : ""}」${money(amt, w.price.currency)} 記入費用頁的「購物與手信」？之後可在費用頁修改分攤。`, "記入費用", () => {
+        const today = seoulToday(), eid = uid("ex");
+        commit(t => {
+          t.expenses.push({ id: eid, date: getDays().includes(today) ? today : null, cat: "shopping", name: `${w.name}${w.qty > 1 ? ` ×${w.qty}` : ""}`, cost: { amount: amt, currency: w.price.currency, basis: "group", status: "confirmed", pay: { mode: "each", payer: members()[0].id, participants: [] } }, note: "由想買清單記入" });
+          const x = t.wish.find(v => v.id === id); if (x) x.expenseId = eid;
+        }, "已記入費用");
+      }, "primary", "不用");
+    } else if (!val && exp) {
+      confirmDialog("一併刪除費用？", `「${w.name}」之前已記入費用（${money(exp.cost.amount, exp.cost.currency)}）。要一併刪除嗎？`, "刪除費用", () => {
+        commit(t => { t.expenses = t.expenses.filter(e => e.id !== exp.id); const x = t.wish.find(v => v.id === id); if (x) delete x.expenseId; }, "已刪除該筆費用");
+      }, "danger", "保留");
+    }
+  }
+
+  // ==========================================================
   // 工具籤
   // ==========================================================
   function renderViewerSelect() {
@@ -1490,6 +1749,7 @@
     if (ui.page === "plan") { renderDates(false); ui._keepScroll = true; renderCalendar(); renderMap(false); renderRoutes(); renderDayCosts(); }
     if (ui.page === "expenses") renderExpenses();
     if (ui.page === "packing") renderPacking();
+    if (ui.page === "wish") renderWish();
     $("#undobtn").disabled = !history.length;
     renderSyncPill();
     saveUI();
