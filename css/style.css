@@ -397,6 +397,22 @@ dialog::backdrop { background: rgba(62,58,57,.35); }
 .partbox .hint { flex-basis: 100%; }
 .paytag { display: block; font-size: 11px; opacity: .75; }
 .paytag.payer { color: var(--gold); opacity: 1; }
+.paytag.fund { color: #3A7D5C; opacity: 1; }
+/* 公共基金 */
+.fundstat button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.stats li.fundstat { background: #E4F1DA; }
+.stats li.fundstat.neg { background: #F8D9D3; }
+.fundbal .tv { color: #3A7D5C; }
+.fundbal.neg .tv { color: var(--now); }
+.fundcols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px 20px; margin: 10px 0 6px; align-items: start; }
+.fundlist { list-style: none; margin: 0 0 8px; padding: 0; }
+.fundlist li { display: grid; grid-template-columns: 48px 1fr auto auto; gap: 8px; align-items: baseline; padding: 6px 2px; border-bottom: 1px solid #ebe5dc; font-size: 14px; }
+.fundlist .fd { opacity: .7; font-size: 13px; }
+.fundlist .fn .pnote { display: block; font-size: 12px; opacity: .7; }
+.fundlist .num { text-align: right; white-space: nowrap; }
+.fundlist button { border: 0; background: transparent; padding: 0 3px; font-size: 14px; opacity: .6; cursor: pointer; }
+.fundlist button:hover { opacity: 1; }
+@media (max-width: 700px) { .fundcols { grid-template-columns: 1fr; } }
 .settletable td.neg { color: var(--now); }
 .settletable td.pos { color: #3b6b2c; }
 .transfers { list-style: none; padding: 0; margin: 10px 0 4px; display: grid; gap: 6px; }
@@ -424,6 +440,15 @@ dialog::backdrop { background: rgba(62,58,57,.35); }
 .sumadd { margin-left: auto; width: 30px; height: 30px; border: 2px solid var(--ink); border-radius: 50%; background: #fff; font-size: 18px; line-height: 1; display: grid; place-items: center; padding: 0; flex: none; }
 .exphead { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
 .exphead h2 { margin: 0; }
+.expfilters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; font-size: 14px; }
+.expfilters .expf { display: inline-flex; align-items: center; gap: 6px; }
+.expfilters select { border: 2px solid var(--ink); border-radius: 999px; padding: 3px 10px; background: #fff; font: inherit; max-width: 170px; }
+.expfsum { margin-left: auto; font-size: 13px; opacity: .8; }
+@media (max-width: 600px) {
+  .expfilters .expf { flex: 1 1 100%; justify-content: space-between; }
+  .expfilters select { flex: 1; max-width: none; }
+  .expfsum { margin-left: 0; }
+}
 .exptable tr.cat-shopping td:first-child { box-shadow: inset 5px 0 0 var(--lilac); }
 .exptable tr.cat-misc td:first-child { box-shadow: inset 5px 0 0 var(--apricot); }
 
@@ -475,8 +500,11 @@ body.gated { overflow: hidden; }
 .wishtop .wishhide input { width: 18px; height: 18px; accent-color: #6E9A57; }
 .wishtop #wishadd { margin-left: auto; }
 .wishsum { flex-basis: 100%; font-size: 13px; opacity: .8; }
-.wishkinds .kcount { display: inline-block; min-width: 18px; margin-left: 5px; padding: 0 5px; border-radius: 999px; background: rgba(62,58,57,.1); font-size: 11px; line-height: 18px; }
-.wishkinds button[aria-pressed="true"] .kcount { background: rgba(255,255,255,.3); }
+.wishwho { max-width: 100%; overflow-x: auto; }
+.wishwho button { font-size: 13px; padding: 3px 12px; }
+.wowner { display: inline-block; padding: 0 8px; border: 1.5px solid var(--ink); border-radius: 999px; background: #F4C7AA; font-size: 12px; line-height: 18px; }
+.wishkinds .kcount, .wishwho .kcount { display: inline-block; min-width: 18px; margin-left: 5px; padding: 0 5px; border-radius: 999px; background: rgba(62,58,57,.1); font-size: 11px; line-height: 18px; }
+.wishkinds button[aria-pressed="true"] .kcount, .wishwho button[aria-pressed="true"] .kcount { background: rgba(255,255,255,.3); }
 .wishgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; align-items: start; }
 .wishempty { padding: 28px 20px; text-align: center; opacity: .8; grid-column: 1 / -1; }
 .wishcard { overflow: hidden; display: flex; flex-direction: column; border-color: var(--ink); }

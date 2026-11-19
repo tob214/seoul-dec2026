@@ -63,7 +63,7 @@
   const UI_KEY = STORE_KEY + ":ui";
   let trip = loadTrip();
   const history = [];
-  const ui = Object.assign({ page: "plan", view: "week", day: 0, showTotal: false, legFocus: null, selectedId: null, packFilter: "all", packSearch: "", wishKind: "food", wishHide: false, wishSearch: "" }, loadUI());
+  const ui = Object.assign({ page: "plan", view: "week", day: 0, showTotal: false, legFocus: null, selectedId: null, packFilter: "all", packSearch: "", wishKind: "food", wishHide: false, wishSearch: "", wishWho: "" }, loadUI());
   let prevDay = ui.day;
 
   function loadTrip() {
@@ -71,7 +71,7 @@
     return normalize(clone(window.TRIP_SOURCE));
   }
   function loadUI() { try { return JSON.parse(localStorage.getItem(UI_KEY) || "{}"); } catch (e) { return {}; } }
-  function saveUI() { try { localStorage.setItem(UI_KEY, JSON.stringify({ page: ui.page, view: ui.view, day: ui.day, showTotal: ui.showTotal, packFilter: ui.packFilter, viewer: ui.viewer || null, wishKind: ui.wishKind, wishHide: ui.wishHide })); } catch (e) { } }
+  function saveUI() { try { localStorage.setItem(UI_KEY, JSON.stringify({ page: ui.page, view: ui.view, day: ui.day, showTotal: ui.showTotal, packFilter: ui.packFilter, viewer: ui.viewer || null, wishKind: ui.wishKind, wishHide: ui.wishHide, wishWho: ui.wishWho || "", expF: ui.expF || {} })); } catch (e) { } }
   function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(trip)); } catch (e) { toast("無法寫入本機草稿（瀏覽器儲存空間不可用）"); } }
   function normalize(t) {
     t.meta = Object.assign({ travelers: 1, settlementCurrency: "SGD", rates: { SGD: 1 }, timezone: "Asia/Seoul" }, t.meta || {});
@@ -90,8 +90,11 @@
       if (!Array.isArray(w.imgs)) w.imgs = w.img ? [w.img] : [];
       delete w.img;
       w.price = Object.assign({ amount: null, currency: "KRW" }, w.price || {});
-      if (w.kind === "buy") w.qty = Math.max(1, Number(w.qty) || 1);
+      if (w.kind === "buy") { w.qty = Math.max(1, Number(w.qty) || 1); if (typeof w.owner !== "string") w.owner = ""; }
     });
+    // 公共基金：每筆夾錢一個項目（雲端按 ID 合併）
+    if (!Array.isArray(t.fund)) t.fund = [];
+    t.fund = t.fund.filter(d => d && d.id).map(d => Object.assign({ member: "", amount: 0, date: null, note: "" }, d, { amount: Number(d.amount) || 0 }));
     const src = {}; ((window.TRIP_SOURCE && window.TRIP_SOURCE.items) || []).forEach(i => { src[i.id] = i; });
     t.items.forEach(it => {
       if (!it.naverQuery && src[it.id] && src[it.id].naverQuery) it.naverQuery = src[it.id].naverQuery; // 舊草稿補上新欄位
@@ -105,7 +108,7 @@
   // ---------- 實體（雲端同步與復原的最小單位） ----------
   // 旅程拆成：meta、items{id}、legs{key}、expenses{id}、packCats{id}、packItems{id}、wish{id}、root{其他頂層欄位}。
   // 有次序的陣列（expenses、packing、wish）以 _o 記錄位置。
-  const KNOWN_TOP = ["meta", "items", "legs", "expenses", "packing", "wish"];
+  const KNOWN_TOP = ["meta", "items", "legs", "expenses", "packing", "wish", "fund"];
   function stable(v) {
     if (Array.isArray(v)) return `[${v.map(stable).join(",")}]`;
     if (v && typeof v === "object") return `{${Object.keys(v).filter(k => v[k] !== undefined).sort().map(k => `${JSON.stringify(k)}:${stable(v[k])}`).join(",")}}`;
@@ -117,15 +120,15 @@
     const pk = t.packing || {};
     const packRoot = {}; Object.keys(pk).forEach(k => { if (k !== "categories" && k !== "items") packRoot[k] = clone(pk[k]); });
     if (Object.keys(packRoot).length) root.__packing = packRoot;
-    return { meta: clone(t.meta || {}), items: byId(t.items), legs: clone(t.legs || {}), expenses: byId(t.expenses, true), packCats: byId(pk.categories, true), packItems: byId(pk.items, true), wish: byId(t.wish, true), root };
+    return { meta: clone(t.meta || {}), items: byId(t.items), legs: clone(t.legs || {}), expenses: byId(t.expenses, true), packCats: byId(pk.categories, true), packItems: byId(pk.items, true), wish: byId(t.wish, true), fund: byId(t.fund, true), root };
   }
   function fromEntities(e) {
     const list = (o) => Object.values(o || {}).map(clone).sort((a, b) => (a._o ?? 0) - (b._o ?? 0) || String(a.id).localeCompare(String(b.id))).map(x => { delete x._o; return x; });
     const root = clone(e.root || {}); const packRoot = root.__packing || {}; delete root.__packing;
-    const t = Object.assign(root, { meta: clone(e.meta || {}), items: list(e.items).sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start) || String(a.id).localeCompare(String(b.id))), legs: clone(e.legs || {}), expenses: list(e.expenses), packing: Object.assign(packRoot, { categories: list(e.packCats), items: list(e.packItems) }), wish: list(e.wish) });
+    const t = Object.assign(root, { meta: clone(e.meta || {}), items: list(e.items).sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start) || String(a.id).localeCompare(String(b.id))), legs: clone(e.legs || {}), expenses: list(e.expenses), packing: Object.assign(packRoot, { categories: list(e.packCats), items: list(e.packItems) }), wish: list(e.wish), fund: list(e.fund) });
     return t;
   }
-  const COLLS = ["items", "legs", "expenses", "packCats", "packItems", "wish", "root"];
+  const COLLS = ["items", "legs", "expenses", "packCats", "packItems", "wish", "fund", "root"];
   /** 比較兩組實體，回傳改動：[{ coll, key, value }]，value === null 代表刪除；meta 的 key 為 null */
   function diffEntities(a, b) {
     const ops = [];
@@ -341,16 +344,42 @@
   }
   const members = () => trip.meta.members;
   const memberName = (id) => (members().find(m => m.id === id) || {}).name;
+  /** 想買項目屬於哪位旅客（無效或未指定 → null＝全團） */
+  const wishOwner = (w) => (w.owner && memberName(w.owner) != null ? w.owner : null);
   /** 參與分攤的團員；未指定（空陣列）＝全部團員，之後新增的團員也會自動加入 */
   function participantsOf(cost) {
     const ids = ((cost.pay && cost.pay.participants) || []).filter(id => memberName(id) != null);
     return ids.length ? ids : members().map(m => m.id);
   }
   function payerOf(cost) { const p = cost.pay; return p && p.mode === "payer" && memberName(p.payer) != null ? p.payer : null; }
+  const isFund = (cost) => !!(cost && cost.pay && cost.pay.mode === "fund");
+  const fundCur = () => trip.meta.fundCurrency || "KRW";
+  /** 換成基金幣別（經結算幣別）；缺匯率 → null */
+  function toFundCur(amount, cur) {
+    const fc = fundCur(); if (cur === fc) return amount;
+    const r = rateOf(cur), rf = rateOf(fc); return r == null || rf == null ? null : amount * r / rf;
+  }
+  /** 公共基金：已夾、已用（所有選「公共基金付」且有金額的項目，含估算）、餘額、各人已夾 */
+  function fundStatus(lines) {
+    const fc = fundCur(), depBy = {}; members().forEach(m => { depBy[m.id] = 0; });
+    let dep = 0; trip.fund.forEach(d => { dep += d.amount; if (d.member in depBy) depBy[d.member] += d.amount; });
+    let spent = 0, unconfirmed = 0, n = 0, noRate = 0, spentConv = 0;
+    (lines || expenseLines()).forEach(L => {
+      if (!isFund(L.cost) || L.group == null) return;
+      const v = toFundCur(L.group, L.cost.currency); if (v == null) { noRate++; return; }
+      n++; spent += v; if (L.converted != null) spentConv += L.converted;
+      if (L.cost.status !== "confirmed" || L.auto || L.wish) unconfirmed += v;
+    });
+    const balance = dep - spent;
+    // 剩餘（或不足）按夾錢比例退回（或補回）
+    const refundBy = {}; members().forEach(m => { refundBy[m.id] = dep ? balance * depBy[m.id] / dep : 0; });
+    return { fc, dep, depBy, spent, spentConv, unconfirmed, balance, refundBy, n, noRate, active: trip.fund.length > 0 || n > 0 };
+  }
   function payLabel(cost) {
     const parts = participantsOf(cost), all = parts.length === members().length;
     const who = all ? "" : `（${parts.map(memberName).join("、")}）`;
     const payer = payerOf(cost);
+    if (isFund(cost)) return `公共基金付${who}`;
     if (payer) return `${memberName(payer)} 代付${who}`;
     return members().length > 1 ? `各付各${who}` : "";
   }
@@ -365,6 +394,13 @@
     const lines = [];
     trip.items.forEach(it => lines.push({ id: it.id, kind: "item", cat: itemExpCat(it), name: it.name, date: it.date, cost: it.cost }));
     trip.expenses.forEach(e => lines.push({ id: e.id, kind: "expense", cat: e.cat, name: e.name, date: e.date || null, cost: e.cost }));
+    // 願望清單「想買」：填了預算、還沒記入費用的，以預算計入（各付各，只算該旅客）
+    trip.wish.forEach(w => {
+      if (w.kind !== "buy" || w.price.amount == null) return;
+      if (w.expenseId && trip.expenses.some(e => e.id === w.expenseId)) return;
+      lines.push({ id: w.id, kind: "wish", cat: "shopping", name: `${w.name}${w.qty > 1 ? ` ×${w.qty}` : ""}`, date: null, wish: true,
+        cost: { amount: w.price.amount * (w.qty || 1), currency: w.price.currency, basis: "group", status: "estimate", pay: { mode: "each", payer: null, participants: wishOwner(w) ? [w.owner] : [] } } });
+    });
     getDays().forEach((d, i) => dayLegs(d, i).forEach(l => {
       if (l.leg.same || !l.leg.minutes) return;
       lines.push({ id: l.key, kind: "leg", cat: "transport", name: `${l.from.name} → ${l.to.name}`, date: d, cost: l.leg.cost || { amount: null, currency: "KRW", basis: "person", status: "tbc" }, auto: !!l.leg.auto });
@@ -405,12 +441,16 @@
   /** 結算：已付（代付人付全額；各付各＝各自付自己那份）− 應付（平均分攤） */
   function settlement() {
     const bal = {}; members().forEach(m => { bal[m.id] = { paid: 0, share: 0 }; });
-    expenseLines().forEach(L => {
+    const lines = expenseLines();
+    lines.forEach(L => {
       if (L.converted == null) return;
-      const parts = participantsOf(L.cost), share = L.converted / parts.length, payer = payerOf(L.cost);
-      parts.forEach(p => { bal[p].share += share; if (!payer) bal[p].paid += share; });
+      const parts = participantsOf(L.cost), share = L.converted / parts.length, payer = payerOf(L.cost), fund = isFund(L.cost);
+      parts.forEach(p => { bal[p].share += share; if (!payer && !fund) bal[p].paid += share; });
       if (payer) bal[payer].paid += L.converted;
     });
+    // 公共基金：基金付了多少，就按夾錢比例算作各人已付（剩餘的錢退回，不算已付）
+    const F = fundStatus(lines);
+    if (F.dep > 0) members().forEach(m => { bal[m.id].paid += F.spentConv * F.depBy[m.id] / F.dep; });
     const rows = members().map(m => ({ id: m.id, name: m.name, paid: bal[m.id].paid, share: bal[m.id].share, net: bal[m.id].paid - bal[m.id].share }));
     // 最少轉帳：欠最多的付給應收最多的（先取整到分）
     const cr = rows.filter(r => r.net > 0.005).map(r => ({ ...r, left: Math.round(r.net * 100) })).sort((a, b) => b.left - a.left);
@@ -460,6 +500,18 @@
     $("#statdays").textContent = `${days.length} 天 ${Math.max(0, days.length - 1)} 夜 · ${dm(days[0])}–${dm(days[days.length - 1])}`;
     const places = new Set(trip.items.filter(i => i.category !== "transit").map(i => (i.address || i.name).replace(/（.*?）/g, "").trim()));
     $("#statplaces").textContent = `${places.size} 個`;
+    // 公共基金餘額（有夾錢紀錄才顯示；按一下到費用頁）
+    let fli = $("#fundstat"); const F = fundStatus();
+    if (F.active) {
+      if (!fli) {
+        fli = document.createElement("li"); fli.id = "fundstat"; fli.className = "fundstat";
+        fli.innerHTML = `<button type="button" title="查看公共基金"><span class="label">基金餘額</span><span class="fv"></span></button>`;
+        $(".stats .totalstat").before(fli);
+        fli.querySelector("button").addEventListener("click", () => { ui.page = "expenses"; saveUI(); renderAll(); setTimeout(() => $("#fundcard")?.scrollIntoView({ behavior: reduceMotion() ? "auto" : "smooth", block: "start" }), 50); });
+      }
+      fli.querySelector(".fv").textContent = money(F.balance, F.fc);
+      fli.classList.toggle("neg", F.balance < 0);
+    } else if (fli) fli.remove();
     const s = expenseSummary();
     const tot = $("#stattotal");
     $(".totalstat .label").textContent = currentViewer() ? `${memberName(currentViewer())} 的花費` : "總花費";
@@ -1167,8 +1219,8 @@
       ${payFields(c)}`;
   }
   function payFields(c) {
-    const pay = c.pay || {}, mode = payerOf(c) ? "payer" : "each", parts = participantsOf(c);
-    return `<label>付款方式<select name="paymode"><option value="each" ${mode === "each" ? "selected" : ""}>各付各</option><option value="payer" ${mode === "payer" ? "selected" : ""}>由一位團員代付</option></select></label>
+    const pay = c.pay || {}, mode = isFund(c) ? "fund" : payerOf(c) ? "payer" : "each", parts = participantsOf(c);
+    return `<label>付款方式<select name="paymode"><option value="each" ${mode === "each" ? "selected" : ""}>各付各</option><option value="payer" ${mode === "payer" ? "selected" : ""}>由一位團員代付</option><option value="fund" ${mode === "fund" ? "selected" : ""}>公共基金付</option></select></label>
       <label>代付人<select name="payer">${members().map(m => `<option value="${m.id}" ${m.id === (pay.payer || members()[0].id) ? "selected" : ""}>${esc(m.name)}</option>`).join("")}</select></label>
       <fieldset class="full partbox"><legend>參與分攤</legend>${members().map(m => `<label class="check"><input type="checkbox" name="part" value="${m.id}" ${parts.includes(m.id) ? "checked" : ""}> ${esc(m.name)}</label>`).join("")}
         <span class="hint">「每人」計價會按勾選人數計算全團金額。團員可在「旅客與匯率」設定。</span></fieldset>`;
@@ -1410,11 +1462,91 @@
     const r = rateOf(cur);
     return `${money(v, cur)}<span class="subsgd">（${r == null ? "缺匯率" : money(v * r, sc)}）</span>`;
   }
+  // ---------- 公共基金 ----------
+  function fundCard() {
+    const F = fundStatus(), fc = F.fc, sc = trip.meta.settlementCurrency, me = currentViewer();
+    const fm = (v) => withSgd(v, fc, sc);
+    const head = `<div class="exphead"><h2>公共基金</h2><button type="button" class="btn primary" id="fund-add">＋ 夾錢</button></div>`;
+    if (!F.active) return `<section class="frame exp-card expwide" id="fundcard">${head}
+      <p class="hint">旅程開始時每人夾一筆錢（例如每人 ₩100,000）放進公共基金，餐飲、車費等小額消費直接用基金付：在費用或行程表單選「付款方式：公共基金付」。這裡會即時顯示餘額；結算時剩餘的錢按夾錢比例退回。</p></section>`;
+    const deps = trip.fund.slice().sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    return `<section class="frame exp-card expwide" id="fundcard">${head}
+      <div class="totals">
+        <div class="totalbox grand fundbal ${F.balance < 0 ? "neg" : ""}"><div class="tl">餘額 · ${fc}</div><div class="tv">${money(F.balance, fc)}</div>${fc !== sc ? `<div class="hint">約 ${money(F.balance * (rateOf(fc) || 0), sc)}</div>` : ""}</div>
+        <div class="totalbox"><div class="tl">已夾</div><div class="tv">${money(F.dep, fc)}</div><div class="hint">${trip.fund.length} 筆</div></div>
+        <div class="totalbox"><div class="tl">已用</div><div class="tv">${money(F.spent, fc)}</div><div class="hint">${F.n} 項${F.unconfirmed ? ` · 其中估算／待確認 ${money(F.unconfirmed, fc)}` : ""}</div></div>
+      </div>
+      ${F.balance < 0 ? `<p class="budgetnote">⚠ 基金不夠 ${money(-F.balance, fc)}，需要再夾錢。</p>` : ""}
+      ${F.noRate ? `<p class="budgetnote">⚠ ${F.noRate} 項基金付款缺少匯率，未計入。</p>` : ""}
+      ${!F.dep && F.n ? `<p class="budgetnote">⚠ 有 ${F.n} 項由基金付，但還沒有人夾錢，結算會不平衡。</p>` : ""}
+      <div class="fundcols">
+        <div style="overflow-x:auto"><table class="exptable">
+          <thead><tr><th>團員</th><th class="num">已夾</th><th class="num">${F.balance < 0 ? "需補回" : "剩餘退回"}<span class="subsgd">（按夾錢比例）</span></th></tr></thead>
+          <tbody>${members().map(m => `<tr class="${m.id === me ? "me" : ""}"><td>${esc(m.name)}</td><td class="num">${money(F.depBy[m.id], fc)}</td><td class="num">${money(Math.abs(F.refundBy[m.id]), fc)}</td></tr>`).join("")}</tbody>
+        </table></div>
+        <div>
+          <ul class="fundlist">${deps.map(d => `<li data-fid="${esc(d.id)}"><span class="fd">${d.date ? dm(d.date) : "—"}</span><span class="fn">${esc(memberName(d.member) || "（已移除團員）")}${d.note ? `<span class="pnote">${esc(d.note)}</span>` : ""}</span><span class="num">${fm(d.amount)}</span><span><button type="button" data-fa="edit" aria-label="編輯">✎</button><button type="button" data-fa="del" aria-label="刪除">✕</button></span></li>`).join("") || `<li class="hint">還沒有夾錢紀錄</li>`}</ul>
+          ${F.n ? `<button type="button" class="btn sm" id="fund-show">查看基金付款（${F.n}）</button>` : ""}
+        </div>
+      </div>
+      <p class="hint">餘額＝已夾 − 所有選「公共基金付」且已填金額的費用（含估算）。結算時，基金付的費用按參與人數分攤；各人的「已付」按夾錢比例計算，剩餘的錢退回。</p>
+    </section>`;
+  }
+  function bindFundCard() {
+    $("#fund-add")?.addEventListener("click", () => openFundDeposit(null));
+    $("#fund-show")?.addEventListener("click", () => { ui.expF = { pay: "fund" }; saveUI(); renderExpenses(); $(".expfilters")?.scrollIntoView({ behavior: reduceMotion() ? "auto" : "smooth", block: "start" }); });
+    $$("#fundcard [data-fid]").forEach(li => {
+      const id = li.dataset.fid;
+      li.addEventListener("click", e => {
+        const a = e.target.closest("[data-fa]"); if (!a) return;
+        if (a.dataset.fa === "edit") openFundDeposit(id);
+        if (a.dataset.fa === "del") { const d = trip.fund.find(x => x.id === id); commit(t => { t.fund = t.fund.filter(x => x.id !== id); }, `已刪除 ${memberName(d.member) || ""} 的夾錢紀錄，可按復原`); }
+      });
+      li.addEventListener("dblclick", e => { if (!e.target.closest("button")) openFundDeposit(id); });
+    });
+  }
+  function openFundDeposit(id) {
+    const isNew = !id, days = getDays(), d = isNew ? null : trip.fund.find(x => x.id === id);
+    if (!isNew && !d) return;
+    const lockCur = trip.fund.length > 0, fc = fundCur();
+    const who = isNew ? "_all" : d.member, date = isNew ? days[0] : (d.date || "");
+    openDialog(`${dlgHead(isNew ? "夾錢到公共基金" : "編輯夾錢紀錄")}<div class="dlgbody">
+        <label>${isNew ? "誰夾" : "團員"}<select name="who">${isNew ? `<option value="_all">每位團員各夾同一金額</option>` : ""}${members().map(m => `<option value="${m.id}" ${m.id === who ? "selected" : ""}>${esc(m.name)}</option>`).join("")}</select></label>
+        <label>金額${isNew ? "（每人）" : ""}<input name="amount" type="number" min="0" step="any" inputmode="decimal" value="${d ? d.amount : ""}" placeholder="例如 100000" required></label>
+        <label>基金幣別${lockCur ? `<input value="${fc}" disabled>` : `<select name="currency">${currencyOptions(fc)}</select>`}</label>
+        <label>日期<select name="date"><option value="" ${!date ? "selected" : ""}>不指定</option>${days.map((x, i) => `<option value="${x}" ${x === date ? "selected" : ""}>D${i + 1} ${dm(x)}（${wdOf(x)}）</option>`).join("")}</select></label>
+        <label class="full">備註<input name="note" value="${esc(d ? d.note : "")}" placeholder="例如：出發時、中途補錢"></label>
+        ${lockCur ? `<p class="hint full">已有夾錢紀錄，基金幣別固定為 ${fc}。</p>` : `<p class="hint full">基金付款若用其他幣別，會按匯率換算成基金幣別。</p>`}
+        <p class="formerr full" role="alert"></p></div>
+      <div class="dlgfoot">${isNew ? "" : `<button class="btn danger left" value="delete">刪除</button>`}<button class="btn" value="cancel" formnovalidate>取消</button><button class="btn primary" value="save">儲存</button></div>`, (a, f) => {
+      if (a === "delete") { commit(t => { t.fund = t.fund.filter(x => x.id !== id); }, "已刪除夾錢紀錄，可按復原"); return; }
+      const v = Number(f.amount.value); if (f.amount.value.trim() === "" || !(v > 0)) return "請輸入大於 0 的金額";
+      const rec = (member) => ({ id: uid("f"), member, amount: v, date: f.date.value || null, note: f.note.value.trim() });
+      commit(t => {
+        if (!lockCur && f.currency) t.meta.fundCurrency = f.currency.value;
+        if (isNew) (f.who.value === "_all" ? members().map(m => m.id) : [f.who.value]).forEach(mid => t.fund.push(rec(mid)));
+        else Object.assign(t.fund.find(x => x.id === id), { member: f.who.value, amount: v, date: f.date.value || null, note: f.note.value.trim() });
+      }, isNew ? (f.who.value === "_all" ? `每人已夾 ${money(v, lockCur ? fc : f.currency.value)}` : "已加入夾錢紀錄") : "已更新夾錢紀錄");
+    });
+  }
   function renderExpenses() {
     const m = trip.meta, S = expenseSummary(), sc = m.settlementCurrency;
     const foreign = Object.entries(S.byCur).filter(([c]) => c !== sc);
     const settleOnly = S.byCur[sc] || 0;
-    const rows = S.lines.slice().sort((a, b) => (a.date || "").localeCompare(b.date || "") || a.cat.localeCompare(b.cat));
+    const allRows = S.lines.slice().sort((a, b) => (a.date || "").localeCompare(b.date || "") || a.cat.localeCompare(b.cat));
+    // 明細篩選：狀態、類別、日期
+    const stKey = (L) => L.auto ? "auto" : L.wish ? "wish" : (L.cost.status in STATUS ? L.cost.status : "tbc");
+    const dKey = (L) => L.date || (L.wish ? "_wish" : "_none");
+    const pKey = (L) => isFund(L.cost) ? "fund" : payerOf(L.cost) ? "payer" : "each";
+    const EF = Object.assign({ status: "", cat: "", date: "", pay: "" }, ui.expF || {});
+    const KEYS = { status: stKey, cat: (L) => L.cat, date: (L) => dKey(L), pay: pKey };
+    const ST_OPTS = [...Object.entries(STATUS), ["auto", "程式估算"], ["wish", "清單預算"]];
+    const D_OPTS = [...getDays().map((d, i) => [d, `D${i + 1} ${dm(d)}`]), ["_none", "全程"], ["_wish", "想買（未記入）"]];
+    const cnt = (fn) => allRows.filter(fn).length;
+    const rows = allRows.filter(L => Object.keys(KEYS).every(k => !EF[k] || KEYS[k](L) === EF[k]));
+    const filtered = Object.keys(KEYS).some(k => EF[k]);
+    let sub = 0; rows.forEach(L => { if (L.converted != null) sub += L.converted; });
+    const fsel = (name, label, opts) => `<label class="expf">${label}<select data-ef="${name}"><option value="">全部</option>${opts.map(([k, v]) => `<option value="${esc(k)}" ${k === EF[name] ? "selected" : ""}>${esc(v)}（${cnt(L => KEYS[name](L) === k)}）</option>`).join("")}</select></label>`;
     const n = members().length, ST = settlement();
     $("#expensespage").innerHTML = `
       <section class="frame exp-card">
@@ -1428,13 +1560,14 @@
           <label>團員<button type="button" class="btn" id="set-members">${esc(members().map(x => x.name).join("、"))} ✎</button></label>
           ${foreign.map(([c]) => `<label>1 ${sc} = ? ${c}<input type="number" step="any" min="0" data-rate="${c}" value="${rateOf(c) ? +(1 / rateOf(c)).toFixed(4) : ""}"></label>`).join("")}
         </div>
-        <div class="budgetnote">⚠ ${S.pending} 項金額未填（機票、酒店、李玟雨門票等），${S.est} 項為估算。${S.noRate.length ? `缺少匯率：${S.noRate.join("、")}。` : ""}總額只計已填金額。<br><span class="hint">${esc(m.ratesNote || "")}</span></div>
+        <div class="budgetnote">⚠ ${S.pending} 項金額未填（機票、酒店、李玟雨門票等），${S.est} 項為估算。${S.noRate.length ? `缺少匯率：${S.noRate.join("、")}。` : ""}總額只計已填金額。${S.lines.some(L => L.wish) ? `已計入願望清單「想買」預算 ${S.lines.filter(L => L.wish).length} 項（記入實際費用後自動取代）。` : ""}<br><span class="hint">${esc(m.ratesNote || "")}</span></div>
       </section>
       <section class="frame exp-card">
         <h2>支出組成</h2>
         ${pieSVG(S.byCat, S.grand)}
         <ul class="legend">${Object.entries(EXP_CAT).map(([k, v]) => `<li><span class="sw" style="background:${v.color}"></span>${v.name}<span class="lv">${money(S.byCat[k] || 0, sc)} · ${S.grand ? ((S.byCat[k] || 0) / S.grand * 100).toFixed(1) : 0}%</span></li>`).join("")}</ul>
       </section>
+      ${fundCard()}
       <section class="frame exp-card expwide" id="settlement">
         <h2>結算</h2>
         ${n < 2 ? `<p class="hint">目前只有 1 位團員。按上方「團員 ✎」加入同行團員，再在各項費用選「代付」或「各付各」。</p>` : ""}
@@ -1447,20 +1580,28 @@
       </section>
       <section class="frame exp-card expwide">
         <div class="exphead"><h2>明細</h2><button type="button" class="btn primary" id="exp-add">＋ 新增費用</button></div>
+        <div class="expfilters">
+          ${fsel("status", "狀態", ST_OPTS)}${fsel("cat", "類別", Object.entries(EXP_CAT).map(([k, v]) => [k, v.name]))}${fsel("date", "日期", D_OPTS)}${fsel("pay", "付款", [["each", "各付各"], ["payer", "代付"], ["fund", "公共基金"]])}
+          ${filtered ? `<button type="button" class="btn sm" id="expf-clear">清除篩選</button>` : ""}
+          <span class="expfsum">${filtered ? `顯示 ${rows.length} / ${allRows.length} 項 · ` : `${allRows.length} 項 · `}小計 ${money(sub, sc)}</span>
+        </div>
         <div style="overflow-x:auto"><table class="exptable">
           <thead><tr><th>日期</th><th>項目</th><th>類別</th><th class="num">單價<span class="subsgd">（${sc}）</span></th><th>方式</th><th class="num">${currentViewer() ? "個人分攤" : "全團"}<span class="subsgd">（${sc}）</span></th><th>狀態</th></tr></thead>
           <tbody>${rows.map(L => `<tr class="cat-${L.cat}" data-kind="${L.kind}" data-id="${esc(L.id)}">
-            <td>${L.date ? dm(L.date) : "全程"}</td><td>${esc(L.name)}${payLabel(L.cost) ? `<span class="paytag ${payerOf(L.cost) ? "payer" : ""}">${esc(payLabel(L.cost))}</span>` : ""}</td><td>${EXP_CAT[L.cat].name}</td>
+            <td>${L.date ? dm(L.date) : L.wish ? "想買" : "全程"}</td><td>${esc(L.name)}${payLabel(L.cost) ? `<span class="paytag ${isFund(L.cost) ? "fund" : payerOf(L.cost) ? "payer" : ""}">${esc(payLabel(L.cost))}</span>` : ""}</td><td>${EXP_CAT[L.cat].name}</td>
             <td class="num">${L.cost.amount == null ? '<span class="badge tbc">未填</span>' : withSgd(L.cost.amount, L.cost.currency, sc)}</td>
             <td>${BASIS[L.cost.basis] || ""}</td><td class="num">${L.group == null ? "—" : withSgd(L.group, L.cost.currency, sc)}</td>
-            <td>${L.auto ? '<span class="badge est">程式估算</span>' : `<span class="badge ${L.cost.status === "confirmed" ? "ok" : L.cost.status === "estimate" ? "est" : "tbc"}">${STATUS[L.cost.status]}</span>`}</td></tr>`).join("")}</tbody>
+            <td>${L.auto ? '<span class="badge est">程式估算</span>' : L.wish ? '<span class="badge est" title="來自願望清單「想買」的預算；打勾已買並記入費用後改為實際費用">清單預算</span>' : `<span class="badge ${L.cost.status === "confirmed" ? "ok" : L.cost.status === "estimate" ? "est" : "tbc"}">${STATUS[L.cost.status]}</span>`}</td></tr>`).join("") || `<tr><td colspan="7" class="hint" style="text-align:center">沒有符合的項目</td></tr>`}</tbody>
         </table></div>
         <p class="hint">雙擊任一列可編輯。</p>
       </section>`;
     $("#set-members").addEventListener("click", openSettings);
     $$("#expensespage [data-rate]").forEach(inp => inp.addEventListener("change", () => { const v = Number(inp.value); if (v > 0) commit(t => { t.meta.rates[inp.dataset.rate] = 1 / v; t.meta.ratesNote = `匯率由使用者於 ${new Date().toISOString().slice(0, 10)} 更新：1 ${t.meta.settlementCurrency} = ${v} ${inp.dataset.rate}`; }, "匯率已更新"); }));
-    $$("#expensespage tbody tr[data-kind]").forEach(tr => tr.addEventListener("dblclick", () => openCostEditor(tr.dataset.kind, tr.dataset.id)));
+    $$("#expensespage tbody tr[data-kind]").forEach(tr => tr.addEventListener("dblclick", () => tr.dataset.kind === "wish" ? openWishEditor(tr.dataset.id) : openCostEditor(tr.dataset.kind, tr.dataset.id)));
     $("#exp-add").addEventListener("click", () => openExpenseEditor(null, null));
+    bindFundCard();
+    $$("#expensespage [data-ef]").forEach(s => s.addEventListener("change", () => { ui.expF = Object.assign({}, EF, { [s.dataset.ef]: s.value }); saveUI(); renderExpenses(); }));
+    $("#expf-clear")?.addEventListener("click", () => { ui.expF = {}; saveUI(); renderExpenses(); });
   }
 
   // ==========================================================
@@ -1541,7 +1682,10 @@
   }
   function renderWish() {
     const host = $("#wishpage"), K = ui.wishKind in WISH_KIND ? ui.wishKind : "food", q = ui.wishSearch.trim().toLowerCase();
-    const all = trip.wish.filter(w => w.kind === K);
+    const multi = K === "buy" && members().length > 1;
+    const W = multi && (ui.wishWho === "_all" || memberName(ui.wishWho) != null) ? ui.wishWho : "";
+    const whoMatch = (w) => !W || (W === "_all" ? !wishOwner(w) : wishOwner(w) === W);
+    const all = trip.wish.filter(w => w.kind === K && whoMatch(w));
     const list = all.filter(w => !ui.wishHide || !wishDone(w))
       .filter(w => !q || [w.name, w.area, w.note, w.forWho, w.shop, w.naverQuery].join(" ").toLowerCase().includes(q))
       .map((w, i) => ({ w, i })).sort((a, b) => (wishDone(a.w) - wishDone(b.w)) || (!!b.w.star - !!a.w.star) || a.i - b.i).map(x => x.w);
@@ -1551,10 +1695,19 @@
     if (K === "buy") {
       let tot = 0, miss = 0; all.forEach(w => { const r = rateOf(w.price.currency); if (w.price.amount == null || r == null) { miss++; return; } tot += w.price.amount * (w.qty || 1) * r; });
       summary += ` · 預算約 ${money(tot, sc)}${miss ? `（${miss} 項未填價錢）` : ""}`;
+      if (multi && !W) {
+        const per = [...members().map(m => [m.id, m.name]), ["_all", "全團"]].map(([id, nm]) => {
+          let s = 0, c = 0; all.forEach(w => { if ((wishOwner(w) || "_all") !== id) return; c++; const r = rateOf(w.price.currency); if (w.price.amount != null && r != null) s += w.price.amount * (w.qty || 1) * r; });
+          return c ? `${esc(nm)} ${money(s, sc)}` : "";
+        }).filter(Boolean);
+        if (per.length) summary += `<br>${per.join(" · ")}`;
+      }
     }
+    const whoBar = multi ? `<div class="filtergroup wishwho" role="group" aria-label="旅客">${[["", "全部"], ...members().map(m => [m.id, m.name]), ["_all", "全團"]].map(([id, nm]) => `<button type="button" data-w="${esc(id)}" aria-pressed="${id === W}">${esc(nm)}<span class="kcount">${trip.wish.filter(w => w.kind === "buy" && (!id || (id === "_all" ? !wishOwner(w) : wishOwner(w) === id))).length}</span></button>`).join("")}</div>` : "";
     host.innerHTML = `
       <section class="frame wishtop">
         <div class="filtergroup wishkinds" role="group" aria-label="清單類別">${Object.entries(WISH_KIND).map(([k, v]) => `<button type="button" data-k="${k}" aria-pressed="${k === K}">${v.name}<span class="kcount">${trip.wish.filter(w => w.kind === k).length}</span></button>`).join("")}</div>
+        ${whoBar}
         <input type="search" id="wishsearch" placeholder="搜尋名稱、地區、備註" value="${esc(ui.wishSearch)}" aria-label="搜尋清單">
         <label class="check wishhide"><input type="checkbox" id="wishhide" ${ui.wishHide ? "checked" : ""}> 隱藏${K === "buy" ? "已買" : "已排入"}</label>
         <button type="button" class="btn primary" id="wishadd">＋ 新增${WISH_KIND[K].add}</button>
@@ -1562,6 +1715,7 @@
       </section>
       <div class="wishgrid">${list.map(wishCard).join("") || `<div class="frame wishempty">${all.length ? "沒有符合的項目" : `還沒有${WISH_KIND[K].name}。按「＋ 新增${WISH_KIND[K].add}」加入${K === "buy" ? "想買的東西" : "想去的地方"}，之後可以一鍵排入行程。`}</div>`}</div>`;
     $$(".wishkinds button", host).forEach(b => b.addEventListener("click", () => { ui.wishKind = b.dataset.k; saveUI(); renderWish(); }));
+    $$(".wishwho button", host).forEach(b => b.addEventListener("click", () => { ui.wishWho = b.dataset.w; saveUI(); renderWish(); }));
     const s = $("#wishsearch");
     s.addEventListener("input", () => { ui.wishSearch = s.value; const pos = s.selectionStart; renderWish(); const ns = $("#wishsearch"); ns.focus(); ns.setSelectionRange(pos, pos); });
     if (hadFocus) s.focus();
@@ -1595,7 +1749,7 @@
     const price = wishPriceText(w);
     let meta, actions;
     if (w.kind === "buy") {
-      meta = [w.qty > 1 ? `× ${w.qty}` : "", w.forWho ? `幫 ${esc(w.forWho)} 買` : "", price ? `預算 ${price}${w.qty > 1 ? " /件" : ""}` : "", w.shop ? `在 ${esc(w.shop)}` : ""].filter(Boolean).join(" · ");
+      meta = [members().length > 1 ? `<span class="wowner">${esc(wishOwner(w) ? memberName(w.owner) : "全團")}</span>` : "", w.qty > 1 ? `× ${w.qty}` : "", w.forWho ? `幫 ${esc(w.forWho)} 買` : "", price ? `預算 ${price}${w.qty > 1 ? " /件" : ""}` : "", w.shop ? `在 ${esc(w.shop)}` : ""].filter(Boolean).join(" · ");
       actions = `${link}<button type="button" class="btn sm" data-wa="edit">編輯</button>`;
     } else {
       meta = [w.area ? esc(w.area) : "", price ? `約 ${price}` : ""].filter(Boolean).join(" · ");
@@ -1614,8 +1768,10 @@
   }
   function openWishEditor(id, kind) {
     const isNew = !id;
-    const w = isNew ? { id: uid("w"), kind: kind || "food", name: "", area: "", naverQuery: "", price: { amount: null, currency: "KRW" }, note: "", link: "", imgs: [], star: false, qty: 1, forWho: "", shop: "", bought: false } : clone(wishById(id));
+    const w = isNew ? { id: uid("w"), kind: kind || "food", name: "", area: "", naverQuery: "", price: { amount: null, currency: "KRW" }, note: "", link: "", imgs: [], star: false, qty: 1, forWho: "", shop: "", bought: false, owner: "" } : clone(wishById(id));
     if (!w) return;
+    if (isNew) w.owner = memberName(ui.wishWho) != null ? ui.wishWho : ui.wishWho === "_all" ? "" : (currentViewer() || members()[0].id);
+    const ownerSel = wishOwner(w) || "";
     const shops = [...new Set(trip.wish.filter(x => x.kind === "shop").map(x => x.name))];
     openDialog(`${dlgHead(isNew ? `新增${WISH_KIND[w.kind].add}` : "編輯清單項目")}
       <div class="dlgbody wishform" data-kind="${w.kind}">
@@ -1624,6 +1780,7 @@
         <label class="full">名稱<input name="name" value="${esc(w.name)}" placeholder="${esc(WISH_KIND[w.kind].ph)}"></label>
         <label class="forplace">地區<input name="area" value="${esc(w.area || "")}" placeholder="例如：明洞、聖水洞"></label>
         <label class="forplace">Naver 搜尋字（韓文）<input name="naverQuery" value="${esc(w.naverQuery || "")}" placeholder="例如：광장시장"></label>
+        <label class="forbuy">旅客（誰的預算）<select name="owner">${members().map(m => `<option value="${esc(m.id)}" ${m.id === ownerSel ? "selected" : ""}>${esc(m.name)}</option>`).join("")}<option value="" ${ownerSel ? "" : "selected"}>全團（平均分攤）</option></select></label>
         <label class="forbuy">數量<input name="qty" type="number" min="1" step="1" value="${w.qty || 1}"></label>
         <label class="forbuy">幫誰買<input name="forWho" value="${esc(w.forWho || "")}" placeholder="例如：自己、媽媽"></label>
         <label><span class="forplace">預估價錢（每人）</span><span class="forbuy">單價預算</span><input name="amount" type="number" min="0" step="any" inputmode="decimal" value="${w.price.amount ?? ""}" placeholder="留空 = 未知"></label>
@@ -1648,7 +1805,7 @@
       if (lines.length > 3) return "圖片最多 3 個";
       const a = f.amount.value.trim(), kind = f.kind.value;
       const next = Object.assign(w, { kind, name, star: f.star.checked, link, imgs: lines, note: f.note.value.trim(), price: { amount: a === "" ? null : Number(a), currency: f.currency.value } });
-      if (kind === "buy") Object.assign(next, { qty: Math.max(1, Math.round(Number(f.qty.value) || 1)), forWho: f.forWho.value.trim(), shop: f.shop.value.trim(), bought: !!next.bought });
+      if (kind === "buy") Object.assign(next, { owner: f.owner.value, qty: Math.max(1, Math.round(Number(f.qty.value) || 1)), forWho: f.forWho.value.trim(), shop: f.shop.value.trim(), bought: !!next.bought });
       else Object.assign(next, { area: f.area.value.trim(), naverQuery: f.naverQuery.value.trim() });
       commit(t => { if (isNew) t.wish.push(next); else t.wish[t.wish.findIndex(x => x.id === id)] = next; }, isNew ? `已加入「${name}」` : `已更新「${name}」`);
       if (ui.wishKind !== kind) { ui.wishKind = kind; saveUI(); renderWish(); }
@@ -1698,14 +1855,22 @@
     commit(t => { t.wish.find(x => x.id === id).bought = val; }, val ? `已買「${w.name}」` : null);
     const exp = w.expenseId && trip.expenses.find(e => e.id === w.expenseId);
     if (val && !exp && w.price.amount != null) {
-      const amt = w.price.amount * (w.qty || 1);
-      confirmDialog("記入費用？", `把「${w.name}${w.qty > 1 ? ` × ${w.qty}` : ""}」${money(amt, w.price.currency)} 記入費用頁的「購物與手信」？之後可在費用頁修改分攤。`, "記入費用", () => {
-        const today = seoulToday(), eid = uid("ex");
+      const amt = w.price.amount * (w.qty || 1), days = getDays(), today = seoulToday();
+      const defDate = days.includes(today) ? today : "";
+      openDialog(`${dlgHead("記入費用？")}<div class="dlgbody">
+          <p class="full">把「${esc(w.name)}${w.qty > 1 ? ` × ${w.qty}` : ""}」記入費用頁的「購物與手信」${wishOwner(w) ? `（只分攤給 ${esc(memberName(w.owner))}）` : ""}。預算 ${money(amt, w.price.currency)}，可改為實際金額。</p>
+          <label>實際金額（合計）<input name="amount" type="number" min="0" step="any" inputmode="decimal" value="${amt}" required></label>
+          <label>幣別<select name="currency">${currencyOptions(w.price.currency)}</select></label>
+          <label class="full">日期<select name="date"><option value="" ${!defDate ? "selected" : ""}>全程（不屬於某一天）</option>${days.map((d, i) => `<option value="${d}" ${d === defDate ? "selected" : ""}>D${i + 1} ${dm(d)}（${wdOf(d)}）</option>`).join("")}</select></label>
+          <p class="formerr full" role="alert"></p></div>
+        <div class="dlgfoot"><button class="btn" value="cancel" formnovalidate>不用</button><button class="btn primary" value="ok">記入費用</button></div>`, (a, f) => {
+        const v = f.amount.value.trim(); if (v === "" || !(Number(v) >= 0)) return "請輸入金額";
+        const eid = uid("ex");
         commit(t => {
-          t.expenses.push({ id: eid, date: getDays().includes(today) ? today : null, cat: "shopping", name: `${w.name}${w.qty > 1 ? ` ×${w.qty}` : ""}`, cost: { amount: amt, currency: w.price.currency, basis: "group", status: "confirmed", pay: { mode: "each", payer: members()[0].id, participants: [] } }, note: "由想買清單記入" });
-          const x = t.wish.find(v => v.id === id); if (x) x.expenseId = eid;
+          t.expenses.push({ id: eid, date: f.date.value || null, cat: "shopping", name: `${w.name}${w.qty > 1 ? ` ×${w.qty}` : ""}`, cost: { amount: Number(v), currency: f.currency.value, basis: "group", status: "confirmed", pay: { mode: "each", payer: members()[0].id, participants: wishOwner(w) ? [w.owner] : [] } }, note: "由想買清單記入" });
+          const x = t.wish.find(v2 => v2.id === id); if (x) x.expenseId = eid;
         }, "已記入費用");
-      }, "primary", "不用");
+      });
     } else if (!val && exp) {
       confirmDialog("一併刪除費用？", `「${w.name}」之前已記入費用（${money(exp.cost.amount, exp.cost.currency)}）。要一併刪除嗎？`, "刪除費用", () => {
         commit(t => { t.expenses = t.expenses.filter(e => e.id !== exp.id); const x = t.wish.find(v => v.id === id); if (x) delete x.expenseId; }, "已刪除該筆費用");

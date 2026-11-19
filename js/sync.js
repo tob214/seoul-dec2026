@@ -2,7 +2,7 @@
    雲端同步（Firebase Auth + Cloud Firestore）
    - data/firebase-config.js 有 FIREBASE_CONFIG 才會啟用；沒有就維持本機草稿模式。
    - 整個旅程存在一份文件：trips/<tripId>
-       { schema, meta, items{id}, legs{key}, expenses{id}, packCats{id}, packItems{id}, wish{id}, root{}, updatedAt, updatedBy }
+       { schema, meta, items{id}, legs{key}, expenses{id}, packCats{id}, packItems{id}, wish{id}, fund{id}, root{}, updatedAt, updatedBy }
    - 每次只更新改動了的欄位（FieldPath），兩人同時改不同項目不會互相覆蓋。
    - 介面與合併邏輯在 app.js（TripApp._cloud）；這裡只負責連線。
    ========================================================== */
@@ -15,7 +15,7 @@
   const VER = window.FIREBASE_SDK_VERSION || "12.18.0";
   const TRIP_ID = window.FIREBASE_TRIP_ID || "seoul-dec2026";
   const url = (m) => `https://www.gstatic.com/firebasejs/${VER}/firebase-${m}.js`;
-  const COLLS = ["items", "legs", "expenses", "packCats", "packItems", "wish", "root"];
+  const COLLS = ["items", "legs", "expenses", "packCats", "packItems", "wish", "fund", "root"];
 
   (async function start() {
     let appMod, authMod, fs;
